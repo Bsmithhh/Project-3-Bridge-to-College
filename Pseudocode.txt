@@ -1,0 +1,112 @@
+
+
+## Overall Task Flow
+1. **Startup**  
+   - Backend server launches, connects to MongoDB, and exposes `/api/interactions` endpoints.  
+   - Frontend app boots, routes to the Dashboard component.
+
+2. **Data Loading**  
+   - Frontend requests “flagged” interactions from backend.  
+   - Backend queries the database for all records where `flags` is non‑empty.  
+   - Backend joins each interaction with its college’s master record.  
+   - Backend returns a JSON list to the frontend.
+
+3. **Rendering & Interaction**  
+   - Dashboard displays summary stats (counts, override‑success rates).  
+   - Dashboard renders filter controls.  
+   - Dashboard lists each interaction as a card.  
+   - Reviewer can expand cards to see details, edit notes, change status.  
+   - On status or notes change, frontend issues a PATCH to backend.  
+   - Backend updates the record and saves it.
+
+4. **Analytics & Overrides**  
+   - A separate endpoint aggregates override statistics (e.g. how many Calculus overrides per college).  
+   - These stats feed the summary panel.
+
+---
+
+## File‑by‑File Steps
+
+### `app.js`
+1. Read configuration (port, MongoDB URI).  
+2. Connect to MongoDB via Mongoose.  
+3. Install JSON‑body middleware.  
+4. Mount the `/api/interactions` router.  
+5. Start listening for HTTP requests.
+
+### `routes/interactions.js`
+1. **GET `/flagged`**  
+   - Query `Interaction` collection for any documents with at least one `flag`.  
+   - Sort by most recent timestamp.  
+   - For each interaction, fetch the matching `College` record.  
+   - Merge college data into the interaction object.  
+   - Return the enriched list in JSON.
+2. **GET `/override-stats`**  
+   - Aggregate interactions where `flags` includes `"calculus_override"`.  
+   - Group by `collegeName` and count total vs. those with academic fit ≥ threshold.  
+   - Return statistics JSON.
+3. **PATCH `/:id`**  
+   - Look up the interaction by `id`.  
+   - If request contains `status`, update that field.  
+   - If request contains `reviewNotes`, update that too.  
+   - Save the document and return the updated object.
+
+### `models/College.js`
+1. Define a Mongoose schema for all college attributes:  
+   - Basic info (name, type, state)  
+   - Demographics breakdown  
+   - Academic metrics (GPA, test scores, graduation rates)  
+   - Requirements by department/subject  
+   - Admissions stats (applicant counts, rates, deadlines)  
+   - Cost data (tuition, debt, net present value)  
+2. Export the model for use in lookup/enrichment.
+
+### `models/Interaction.js`
+1. Define a Mongoose schema for each student–college interaction:  
+   - `timestamp`, `studentId`, `collegeName`, `majorInterest`  
+   - `academicProfile` (GPA, tests, course history, strength indicators)  
+   - `flags` array (e.g. `calculus_override`, `financial_concern`, etc.)  
+   - `overrideData` map for any custom override info  
+   - `fitScores` (academic, social, financial)  
+   - `status` and `reviewNotes`.
+2. Export the model for CRUD operations.
+
+### `frontend/src/Dashboard.js`
+1. Initialize React state for `interactions` and `filters`.  
+2. On mount or whenever `filters` change, fetch `/api/interactions/flagged`.  
+3. Store the returned list in state.  
+4. Render:  
+   - A header and the `Stats` component (summary counts).  
+   - A two‑column layout:  
+     - Left: `<FilterPanel>` (status, flag type, date range).  
+     - Right: `<InteractionList>`.
+
+### `frontend/src/InteractionList.js`
+1. Receive the array of interaction objects as a prop.  
+2. Loop over each interaction and render an `<InteractionCard>`.
+
+### `frontend/src/InteractionCard.js`
+1. Show header info: student ID, college name, timestamp.  
+2. List out each `flag` as a color‑coded badge.  
+3. Render a “Show More” button; when clicked, toggle:  
+   - Academic profile (GPA, SAT scores).  
+   - Fit scores (academic/social/financial).  
+   - A textarea for `reviewNotes`.  
+4. Render a status dropdown; on change, send a PATCH with new `status` and current `notes`.
+
+### `frontend/src/FilterPanel.js`
+1. Display controls to pick: review status (all/pending/reviewed/resolved), flag type, and date window.  
+2. On any change, call the parent’s `setFilters`.
+
+### `frontend/src/Stats.js`
+1. Receive full `interactions` list.  
+2. Compute summary metrics, e.g.:  
+   - Total flagged items.  
+   - Count by flag type.  
+   - Override success rate (via `/override-stats` or inline).  
+3. Render these as numbers, charts, or badges.
+
+### `frontend/src/Dashboard.css`
+1. Define layout grid for dashboard and content columns.  
+2. Style card containers, headers, footers, badges, buttons, text areas.  
+3. Ensure consistent spacing, borders, shadows, and typography across components.
